@@ -20,34 +20,31 @@ export default function GoogleSignupButton({
   const handleSuccess = async (credentialResponse: { credential?: string }) => {
     try {
       const googleToken = credentialResponse.credential;
+      if (!googleToken) return;
 
-      if (!googleToken) {
-        return;
-      }
-
-      const response = await axios.post(
-        "http://localhost:8000/api/v1/auth/google",
-        {
-          token: googleToken,
-        }
-      );
+      const response = await axios.post("/api/auth/google", {
+        token: googleToken,
+      });
 
       localStorage.setItem("token", response.data.token);
       localStorage.setItem("user", JSON.stringify(response.data.user));
       window.dispatchEvent(new Event("auth-changed"));
       onLoginSuccess?.(response.data.user);
-
     } catch (error) {
-      console.log(error);
+      console.error("Login error:", error);
     }
   };
 
   return (
-    <GoogleLogin
-      onSuccess={handleSuccess}
-      onError={() => {
-        console.log("Google Login Failed");
-      }}
-    />
+    <div className="login-btn-wrapper">
+      <GoogleLogin
+        onSuccess={handleSuccess}
+        onError={() => console.error("Google login failed")}
+        text="signin"
+        shape="pill"
+        theme="filled_black"
+        size="medium"
+      />
+    </div>
   );
 }

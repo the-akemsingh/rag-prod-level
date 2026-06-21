@@ -1,17 +1,24 @@
 from logging.config import fileConfig
 
 import os
+import sys
+from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Add the `app/` directory to sys.path so bare imports like
+# `from db.database import Base` in models.py resolve correctly.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from alembic import context
 
-from app.db.database import Base
-from app.db.models import User
+from db.database import Base
+from db.models import User, Document, Chat, Message
+
 
 target_metadata = Base.metadata
 
@@ -23,11 +30,9 @@ database_url = os.getenv("DATABASE_URL")
 if not database_url:
     raise ValueError("DATABASE_URL not found")
 
-# Alembic prefers sync URLs
-database_url = database_url.replace(
-    "postgresql+asyncpg",
-    "postgresql+psycopg"
-)
+# Alembic prefers sync URLs; asyncpg -> psycopg, and fix SSL param for psycopg3
+database_url = database_url.replace("postgresql+asyncpg", "postgresql+psycopg")
+database_url = database_url.replace("?ssl=require", "?sslmode=require")
 
 config.set_main_option(
     "sqlalchemy.url",

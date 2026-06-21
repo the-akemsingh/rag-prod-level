@@ -1,47 +1,42 @@
+import os
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
-import uuid
 from services.llm_call import getEmbeddings
 from services.chromadb import addEmbeddingDataToCollection
 from services.models import Embedded_Data
 
-def process_document(filepath:str):
-    chunks = fileChunkHandler(filepath=filepath)
-    embeddedDoc = generate_document_embeddings(chunks)
+def process_document(filepath: str, document_id: str):
+    chunks = fileChunkHandler(filepath=filepath)    
+    if os.path.exists(filepath):
+        try:
+            os.remove(filepath)
+        except Exception as e:
+            print(f"Error deleting local file {filepath}: {e}")
+  
+    embeddedDoc = generate_document_embeddings(chunks, document_id)
     addEmbeddingDataToCollection(embeddedDoc)
-    
-    return
 
-def fileChunkHandler(filepath:str) -> list[Document] :
-    loader =  PyPDFLoader(filepath)
+def fileChunkHandler(filepath: str) -> list[Document]:
+    loader = PyPDFLoader(filepath)
     file = loader.load()
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=200
     )
-    chunks = splitter.split_documents(file)
-    return chunks
-    
-def generate_document_embeddings(
-    chunks: list[Document]
-) -> list[Embedded_Data]:
+    return splitter.split_documents(file)
 
-    document_id = str(uuid.uuid4())
+def generate_document_embeddings(chunks: list[Document], document_id: str) -> list[Embedded_Data]:
     texts = [doc.page_content for doc in chunks]
     embeddings_response = getEmbeddings(texts)
     
-    if embeddings_response is None:
+    if not embeddings_response:
+
         return []
 
     document_embeddings = []
-
-    for index, (doc, embedding) in enumerate(
-        zip(chunks, embeddings_response)
-    ):
-
+    for index, (doc, embedding) in enumerate(zip(chunks, embeddings_response)):
         vector = embedding.values
-
         if vector is None:
             continue
 
@@ -57,5 +52,4 @@ def generate_document_embeddings(
                 }
             )
         )
-
     return document_embeddings
