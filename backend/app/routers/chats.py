@@ -1,13 +1,13 @@
 import os
 import uuid
 import shutil
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status, BackgroundTasks
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from db.database import get_db
 from db.models import Chat, Message, Document
 from dependencies import getUser, resolve_user
-from services.data_ingestion import process_document
+from services.data_ingestion import process_document_in_background
 from services.chromadb import delete_embeddings
 
 router = APIRouter(prefix="/chats", tags=["chats"])
@@ -84,11 +84,26 @@ async def get_messages(
     stmt = select(Message).where(Message.chat_id == chat_id).order_by(Message.created_at.asc())
     result = await db.execute(stmt)
     messages = result.scalars().all()
-    return [{"id": m.id, "role": m.role, "content": m.content, "created_at": m.created_at} for m in messages]
+
+    doc_stmt = select(Document).where(Document.chat_id == chat_id)
+    doc_result = await db.execute(doc_stmt)
+    docs = {d.document_name: d for d in doc_result.scalars().all()}
+
+    return [
+        {
+            "id": m.id,
+            "role": m.role,
+            "content": m.content,
+            "created_at": m.created_at,
+            "status": docs[m.content].status if (m.role == "document" and m.content in docs) else "indexed"
+        }
+        for m in messages
+    ]
 
 @router.post("/{chat_id}/upload-doc", status_code=status.HTTP_201_CREATED)
 async def upload_documents(
     chat_id: str,
+    background_tasks: BackgroundTasks,
     files: list[UploadFile] = File(...),
     payload: dict = Depends(getUser),
     db: AsyncSession = Depends(get_db)
@@ -123,33 +138,28 @@ async def upload_documents(
             document_name=file.filename,
             user_id=user.id,
             chat_id=chat.id,
-            is_embedded=False
+            is_embedded=False,
+            status="pending"
         )
         db.add(document)
         
         if not chat.title or chat.title == "New Chat":
             chat.title = file.filename
+
+        doc_msg = Message(
+            id=str(uuid.uuid4()),
+            chat_id=chat.id,
+            role="document",
+            content=file.filename
+        )
+        db.add(doc_msg)
             
         documents_created.append((document, file_path))
 
     await db.commit()
 
     for doc, path in documents_created:
-        try:
-            process_document(path, doc.id)
-            doc.is_embedded = True
-            await db.commit()
-
-            doc_msg = Message(
-                id=str(uuid.uuid4()),
-                chat_id=chat.id,
-                role="document",
-                content=doc.document_name
-            )
-            db.add(doc_msg)
-            await db.commit()
-        except Exception as e:
-            raise HTTPException(500, f"Failed to process document {doc.document_name}: {e}")
+        background_tasks.add_task(process_document_in_background, doc.id, path)
 
     return {
         "message": "uploaded",

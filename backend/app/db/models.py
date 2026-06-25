@@ -66,6 +66,10 @@ class Document(Base):
         default=False
     )
 
+    status: Mapped[str] = mapped_column(
+        default="pending"
+    )
+
 
 class Message(Base):
     __tablename__ = "messages"

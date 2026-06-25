@@ -17,10 +17,10 @@ load_dotenv()
 
 
 class Metadata(TypedDict):
-    page_label: str
+    # page_label: str    #not every doc type has these fields - that's what i noticed in chromadb - I COULD BE WRONG
+    # page: int
+    # total_pages: int
     source: str
-    page: int
-    total_pages: int
 
 
 class Doc(TypedDict):
@@ -32,10 +32,12 @@ class Doc(TypedDict):
 class GraphState(TypedDict):
     userMessage: str
     document_ids: list[str]
+    chat_history: NotRequired[list[dict[str, str]]]
     query_vector: NotRequired[list[float]]
     retrieved_docs: NotRequired[list[Doc]]
     relevant_docs: NotRequired[list[Doc]]
     llmResponse: NotRequired[str]
+    retrieval_attempts: NotRequired[int]
 
 
 class GraderOutput(BaseModel):
@@ -98,10 +100,7 @@ async def document_grader(state: GraphState):
             Document Index: {idx},\n 
             Document Content: {doc["content"]}, \n 
             Document Metadata: \n
-            Page Label: {doc["metadata"]["page_label"]}
             Source: {doc["metadata"]["source"]}
-            Page: {doc["metadata"]["page"]}
-            Total Pages: {doc["metadata"]["total_pages"]}
             """
         )
 
@@ -123,11 +122,28 @@ async def document_grader(state: GraphState):
 
 async def generate_llm_response(state: GraphState):
     relevant_docs = state.get("relevant_docs")
+    
     if not relevant_docs:
         return {
             "llmResponse": "Sorry, I don't have enough information in the provided documents to answer that question."
         }
-    context = "\n\n".join([doc["content"] for doc in relevant_docs])
+        
+    chat_history = state.get("chat_history", [])
+    history_lines = []
+
+    for item in chat_history:
+        role = item.get("role", "unknown")
+        if role == "document":
+            document_name = item.get("document_name", item.get("content", ""))
+            history_lines.append(f"document: {document_name}")
+        else:
+            history_lines.append(f"{role}: {item.get('content', '')}")
+
+    history_context = "\n".join(history_lines)
+    documents_context = "\n\n".join([doc["content"] for doc in relevant_docs])
+    
+    context = f"Conversation History:\n{history_context}\n\nRelevant Documents:\n{documents_context}"
+
     answer = await generateAnswer(context, state["userMessage"])
     return {"llmResponse": answer}
 
@@ -136,12 +152,12 @@ async def generate_llm_response(state: GraphState):
 
 
 def route_after_grading(state: GraphState):
-    relevant_docs = state.get("relevant_docs")
-    if relevant_docs:
-        return "generate_llm_response"
-    else:
-        return END
+    return "generate_llm_response"
 
+# def enhance_user_query(state:GraphState):
+#     user_query = state.get("userMessage")
+#     return user_query
+    
 
 #  workflow
 agent_builder = StateGraph(GraphState)

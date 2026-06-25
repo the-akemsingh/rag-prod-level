@@ -15,7 +15,7 @@ client = chromadb.CloudClient(
 def getCollection():
     return client.get_or_create_collection(name="document_embeddings", embedding_function=None)
 
-def addEmbeddingDataToCollection(embeddingsData: list[Embedded_Data]) -> bool:
+async def addEmbeddingDataToCollection(embeddingsData: list[Embedded_Data]) -> bool:
     batch_size = 100
     for item in range(0, len(embeddingsData), batch_size):
         batch = embeddingsData[item:item + batch_size]

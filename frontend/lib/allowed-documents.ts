@@ -8,10 +8,6 @@ const DOCUMENT_EXTENSIONS = [
   ".pptx",
   ".txt",
   ".csv",
-  ".rtf",
-  ".odt",
-  ".ods",
-  ".odp",
 ] as const;
 
 const DOCUMENT_MIME_TYPES = new Set([

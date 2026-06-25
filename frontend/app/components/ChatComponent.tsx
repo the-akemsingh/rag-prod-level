@@ -13,6 +13,7 @@ type ChatEntry = {
   id: string;
   role: "user" | "assistant" | "document";
   content: string;
+  status?: "pending" | "indexing" | "indexed" | "failed";
 };
 
 type UploadPhase = "idle" | "uploading" | "ready" | "error";
@@ -115,9 +116,9 @@ export default function ChatComponent() {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((r) => r.json())
-      .then((data: { id: string; role: "user" | "assistant" | "document"; content: string }[]) => {
+      .then((data: { id: string; role: "user" | "assistant" | "document"; content: string; status?: "pending" | "indexing" | "indexed" | "failed" }[]) => {
         if (Array.isArray(data) && data.length > 0) {
-          setMessages(data.map((m) => ({ id: m.id, role: m.role, content: m.content })));
+          setMessages(data.map((m) => ({ id: m.id, role: m.role, content: m.content, status: m.status })));
           const firstDoc = data.find((m) => m.role === "document");
           if (firstDoc) {
             setUploadPhase("ready");
@@ -128,6 +129,36 @@ export default function ChatComponent() {
       })
       .catch(() => { });
   }, [activeChat?.id]);
+
+  useEffect(() => {
+    const hasActiveDocs = messages.some((m) => m.role === "document" && (m.status === "pending" || m.status === "indexing"));
+    if (!hasActiveDocs || !activeChat || activeChat.isTemp) return;
+
+    const interval = setInterval(() => {
+      const token = localStorage.getItem("token");
+      if (!token) return;
+      fetch(`/api/chats/${activeChat.id}/messages`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((r) => r.json())
+        .then((data: { id: string; role: "user" | "assistant" | "document"; content: string; status?: "pending" | "indexing" | "indexed" | "failed" }[]) => {
+          if (Array.isArray(data)) {
+            const newMsgs = data.map((m) => ({ id: m.id, role: m.role, content: m.content, status: m.status }));
+            // Only update messages state if some status values have actually changed
+            const isDifferent = newMsgs.some((m, idx) => {
+              const prev = messages[idx];
+              return !prev || prev.id !== m.id || prev.status !== m.status;
+            });
+            if (isDifferent) {
+              setMessages(newMsgs);
+            }
+          }
+        })
+        .catch(() => {});
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [messages, activeChat?.id]);
 
   function connectWs(chatId: string, token: string) {
     const ws = new WebSocket(`${getBackendWsUrl()}/ws/chat/${chatId}?token=${token}`);
@@ -176,7 +207,7 @@ export default function ChatComponent() {
       const updatedChat: ChatSession = { id: returnedChatId, title: returnedChatTitle, created_at: new Date().toISOString() };
       setUploadedFileName(files.map((f) => f.name).join(", "));
       setUploadPhase("ready");
-      setMessages((prev) => [...prev, ...files.map((f) => ({ id: createId(), role: "document" as const, content: f.name }))]);
+      setMessages((prev) => [...prev, ...files.map((f) => ({ id: createId(), role: "document" as const, content: f.name, status: "pending" as const }))]);
       setSelectedFiles([]);
       if (fileInputRef.current) fileInputRef.current.value = "";
       setShowUploadPanel(false);
@@ -392,7 +423,13 @@ export default function ChatComponent() {
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
                               </svg>
                               <span className="truncate font-medium text-xs">{entry.content}</span>
-                              <span className="shrink-0 text-xs text-indigo-500 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-500/20 px-2 py-0.5 rounded-full">indexed</span>
+                              {entry.status === "failed" ? (
+                                <span className="shrink-0 text-xs text-red-500 dark:text-red-400 bg-red-100 dark:bg-red-500/20 px-2 py-0.5 rounded-full">failed</span>
+                              ) : entry.status === "indexing" || entry.status === "pending" ? (
+                                <span className="shrink-0 text-xs text-amber-500 dark:text-amber-400 bg-amber-100 dark:bg-amber-500/20 px-2 py-0.5 rounded-full animate-pulse">{entry.status || "pending"}</span>
+                              ) : (
+                                <span className="shrink-0 text-xs text-indigo-500 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-500/20 px-2 py-0.5 rounded-full">indexed</span>
+                              )}
                             </div>
 
                             /* User bubble */

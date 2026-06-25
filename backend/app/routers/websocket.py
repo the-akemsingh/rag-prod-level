@@ -45,6 +45,26 @@ async def websocket_chat(
 
     document_ids = [doc.id for doc in documents]
 
+    history_stmt = (
+        select(Message)
+        .where(Message.chat_id == chat_id)
+        .order_by(Message.created_at.asc())
+    )
+    history_result = await db.execute(history_stmt)
+    history_messages = history_result.scalars().all()
+
+    chat_history = []
+    for message in history_messages:
+        history_item = {
+            "role": message.role,
+            "content": message.content,
+        }
+
+        if message.role == "document":
+            history_item["document_name"] = message.content
+
+        chat_history.append(history_item)
+    
     try:
         while True:
             data = await websocket.receive_json()
@@ -63,7 +83,8 @@ async def websocket_chat(
             
             graph_result = await agent.ainvoke({
                 "userMessage":user_message,
-                "document_ids":document_ids
+                "document_ids":document_ids,
+                "chat_history": chat_history,
             })
             
             answer = graph_result["llmResponse"]
